@@ -124,7 +124,10 @@ button {
 
   <div id="panelContent">
     出発地
-    <input id="origin">
+  <div style="display:flex; gap:6px; align-items:center;">
+  <input id="origin" placeholder="出発地">
+  <button class="small" onclick="useCurrentLocation()">📍</button>
+  </div>
 
     目的地
     <input id="destName" placeholder="目的地">
@@ -246,3 +249,4 @@ async defer></script>
 
 </body>
 </html>
+
