@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Route Planner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+<style>
+:root {
+  --bg:#f2f2f7;
+  --card:#ffffff;
+  --text:#000000;
+  --blue:#007aff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#000000;
+    --card:#1c1c1e;
+    --text:#ffffff;
+  }
+}
+body {
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+}
+header {
+  padding:10px;
+  font-size:16px;
+  font-weight:600;
+  text-align:center;
+  background:var(--card);
+}
+.card {
+  background:var(--card);
+  margin:6px 10px;
+  padding:6px;
+  border-radius:12px;
+}
+input, textarea, button {
+  width:100%;
+  padding:4px;
+  font-size:12px;
+  margin-top:3px;
+}
+textarea { resize:none; }
+button {
+  background:var(--blue);
+  color:white;
+  border:none;
+  border-radius:8px;
+  padding:6px;
+}
+
+/* ===== 30pxボタン ===== */
+.small {
+  width:30px;
+  height:30px;
+  padding:0;
+  font-size:14px;
+  line-height:30px;
+  text-align:center;
+  border-radius:6px;
+  margin-left:2px;
+}
+
+.toggle-header {
+  display:flex;
+  justify-content:space-between;
+  cursor:pointer;
+  font-size:14px;
+}
+.collapsed #panelContent {
+  max-height:0;
+  overflow:hidden;
+}
+.toggle-row {
+  display:flex;
+  gap:4px;
+}
+
+/* ===== 目的地行 ===== */
+.item {
+  font-size:12px;
+  margin-top:6px;
+}
+.item-header {
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.item-title {
+  flex:1;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+}
+.item-buttons {
+  flex-shrink:0;
+  white-space:nowrap;
+}
+
+#map {
+  height:calc(100vh - 180px);
+}
+.collapsed + #map {
+  height:calc(100vh - 90px);
+}
+</style>
+</head>
+
+<body>
+
+<header>🚗 Route Planner</header>
+
+<div class="card collapsed" id="controlCard">
+  <div class="toggle-header" onclick="togglePanel()">
+    <span>ルート設定</span>
+    <span>⬍</span>
+  </div>
+
+  <div id="panelContent">
+    出発地
+    <input id="origin">
+
+    目的地
+    <input id="destName" placeholder="目的地">
+    <textarea id="destMemo" placeholder="メモ（任意）"></textarea>
+
+    <input type="file" accept="image/*" onchange="readImage(this)">
+    <button onclick="addDest()">追加</button>
+
+    <div id="destList"></div>
+
+    <div class="toggle-row">
+      <label>最適順 <input type="checkbox" id="optimize"></label>
+      <label>高速道路なし <input type="checkbox" id="avoidHighways"></label>
+    </div>
+
+    <button onclick="searchRoute()">ルート検索</button>
+  </div>
+</div>
+
+<div id="info" class="card"></div>
+<div id="map"></div>
+
+<script>
+let map, directionsService, directionsRenderer;
+let destinations = [];
+
+function initMap() {
+  map = new google.maps.Map(document.getElementById("map"), {
+    center:{lat:35.681236,lng:139.767125}, zoom:13
+  });
+  directionsService = new google.maps.DirectionsService();
+  directionsRenderer = new google.maps.DirectionsRenderer({ map });
+  load();
+}
+
+function togglePanel(){
+  document.getElementById("controlCard").classList.toggle("collapsed");
+}
+
+function addDest(){
+  if(!destName.value) return;
+  destinations.push({ name:destName.value, memo:destMemo.value });
+  destName.value="";
+  destMemo.value="";
+  save(); render();
+}
+
+function moveDest(i,d){
+  const j=i+d;
+  if(j<0||j>=destinations.length) return;
+  [destinations[i],destinations[j]]=[destinations[j],destinations[i]];
+  save(); render();
+}
+
+function removeDest(i){
+  destinations.splice(i,1);
+  save(); render();
+}
+
+function render(){
+  destList.innerHTML="";
+  destinations.forEach((d,i)=>{
+    destList.innerHTML+=`
+      <div class="item">
+        <div class="item-header">
+          <div class="item-title">${i+1}. <strong>${d.name}</strong></div>
+          <div class="item-buttons">
+            <button class="small" onclick="moveDest(${i},-1)">↑</button>
+            <button class="small" onclick="moveDest(${i},1)">↓</button>
+            <button class="small" onclick="removeDest(${i})">✕</button>
+          </div>
+        </div>
+        <small>${d.memo||""}</small>
+      </div>`;
+  });
+}
+
+function searchRoute(){
+  if(!origin.value||destinations.length===0) return;
+  directionsService.route({
+    origin:origin.value,
+    destination:destinations.at(-1).name,
+    waypoints:destinations.slice(0,-1).map(d=>({location:d.name,stopover:true})),
+    optimizeWaypoints:optimize.checked,
+    avoidHighways:avoidHighways.checked,
+    travelMode:"DRIVING"
+  },(res,status)=>{
+    if(status!=="OK") return;
+    directionsRenderer.setDirections(res);
+  });
+}
+
+function save(){
+  localStorage.setItem("routeData",
+    JSON.stringify({origin:origin.value,destinations})
+  );
+}
+function load(){
+  const d=JSON.parse(localStorage.getItem("routeData")||"{}");
+  if(d.origin) origin.value=d.origin;
+  if(d.destinations) destinations=d.destinations;
+  render();
+}
+
+function readImage(input){
+  const f=input.files[0];
+  if(!f) return;
+  Tesseract.recognize(f,"jpn").then(r=>{
+    const t=r.data.text.trim();
+    destName.value=t;
+    destMemo.value=t;
+  });
+}
+</script>
+
+<script
+src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDYE-Ti5VhVC_OLk5Loc709vFotE2Aitus&callback=initMap"
+async defer></script>
+
+</body>
+</html>
